@@ -5,6 +5,7 @@ import javafx.scene.image.ImageView;
 import javafx.scene.layout.Pane;
 import javafx.scene.paint.Color;
 import javafx.scene.text.Font;
+import javafx.scene.text.FontWeight;
 import javafx.scene.text.Text;
 
 import java.util.ArrayList;
@@ -18,6 +19,7 @@ public class GameUIHandler {
     private Score scoreLabel;
     private Text stageLabel;
     private Text waveLabel;
+    private Text liveLabel;  // ⭐ เพิ่ม label "Live:"
 
     private List<ImageView> liveIcons;
     private Image liveIcon;
@@ -46,7 +48,14 @@ public class GameUIHandler {
         waveLabel.setTranslateX(1280 / 2 - 100);
         waveLabel.setTranslateY(100);
 
-        gamePane.getChildren().addAll(scoreLabel, stageLabel, waveLabel);
+        // ⭐ Live label
+        liveLabel = new Text("Live:");
+        liveLabel.setFont(Font.font("Arial", FontWeight.BOLD, 20));
+        liveLabel.setFill(Color.WHITE);
+        liveLabel.setTranslateX(1280 - 220);
+        liveLabel.setTranslateY(40);
+
+        gamePane.getChildren().addAll(scoreLabel, stageLabel, waveLabel, liveLabel);
     }
 
     public void createLiveIcons(int lives) {
@@ -57,11 +66,11 @@ public class GameUIHandler {
 
         for (int i = 0; i < lives; i++) {
             ImageView icon = new ImageView(liveIcon);
-            icon.setFitWidth(32);
-            icon.setFitHeight(32);
+            icon.setFitWidth(48);      // ⭐ เพิ่มขนาดจาก 32 → 48
+            icon.setFitHeight(48);
             icon.setPreserveRatio(true);
-            icon.setTranslateX(1280 - 150 + (i * 40));
-            icon.setTranslateY(20);
+            icon.setTranslateX(1280 - 150 + (i * 55));  // ⭐ เพิ่มช่องว่าง
+            icon.setTranslateY(15);
             liveIcons.add(icon);
             gamePane.getChildren().add(icon);
         }
@@ -84,6 +93,7 @@ public class GameUIHandler {
         gamePane.getChildren().remove(scoreLabel);
         gamePane.getChildren().remove(stageLabel);
         gamePane.getChildren().remove(waveLabel);
+        gamePane.getChildren().remove(liveLabel);
         for (ImageView icon : liveIcons) {
             gamePane.getChildren().remove(icon);
         }

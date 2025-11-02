@@ -50,8 +50,14 @@ public class SmallBoss extends Pane {
     private long shootInterval = 2_000_000_000;
 
     // Sprite sheet (4 frames)
-    private static final int SPRITE_WIDTH = 32;
-    private static final int SPRITE_HEIGHT = 32;
+    // small-boss2.png: 4 frames แนวนอน
+    // Frame 1: x=0, y=0, 38x56
+    // Frame 2: x=47, y=0, 38x56
+    // Frame 3: x=94, y=0, 38x56
+    // Frame 4: x=140, y=0, 38x56
+    private static final int SPRITE_WIDTH = 38;
+    private static final int SPRITE_HEIGHT = 56;
+    private static final int SPRITE_SPACING = 47;  // distance between frames
     private static final int TOTAL_FRAMES = 4;
 
     private static final int WEAPON_FRAMES = 4;
@@ -81,11 +87,12 @@ public class SmallBoss extends Pane {
                     spriteSheet,
                     TOTAL_FRAMES,
                     TOTAL_FRAMES,
-                    0, 0,
-                    SPRITE_WIDTH,
-                    SPRITE_HEIGHT,
-                    SPRITE_WIDTH,
-                    SPRITE_HEIGHT
+                    0,                  // offsetX
+                    0,                  // offsetY
+                    SPRITE_WIDTH,       // 38
+                    SPRITE_HEIGHT,      // 56
+                    SPRITE_SPACING,     // 47 (spacing between frames)
+                    SPRITE_HEIGHT       // 56
             );
 
             sprite.setFitWidth(width);

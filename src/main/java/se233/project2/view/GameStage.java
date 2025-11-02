@@ -3,17 +3,20 @@ package se233.project2.view;
 import javafx.scene.control.Button;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
+import javafx.scene.input.KeyCode;
 import javafx.scene.layout.Pane;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.text.Font;
 import javafx.scene.text.Text;
+import se233.project2.controller.SoundController;
 import se233.project2.controller.Updatable;
 import se233.project2.model.GameCharacter;
 import se233.project2.model.Keys;
 import se233.project2.model.Platform;
 import se233.project2.model.effect.Explosion;
 import se233.project2.model.item.Bullet;
+import se233.project2.model.item.SpecialBullet;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -28,22 +31,32 @@ public class GameStage extends Pane implements Updatable {
     private GameCharacter player;
     private Keys keys;
 
+    // ⭐ Sound controller
+    private SoundController soundController;
+
+    // ⭐ Callback สำหรับย้อนกลับไปหน้า Start Screen
+    private Runnable onShowStartScreen;
+
     // Handlers
     private GameUIHandler uiHandler;
     private EnemyHandler enemyHandler;
     private BossHandler bossHandler;
 
     private List<Bullet> playerBullets;
+    private List<SpecialBullet> specialBullets;  // ⭐ กระสุนพิเศษ
     private List<Platform> platforms;
     private List<Explosion> explosions;
 
     // Sprites
     private Image playerBulletSprite;
+    private Image playerSpecialBulletSprite;  // ⭐ กระสุนพิเศษ
     private Image explosionSprite;
     private Image liveIconSprite;
 
     private long lastShoot = 0;
+    private long lastSpecialShoot = 0;  // ⭐ track special bullet cooldown
     private final long SHOOT_DELAY = 200_000_000;
+    private final long SPECIAL_COOLDOWN = 5_000_000_000L;  // 5 วินาที cooldown
 
     // Game state
     private int playerLives = 3;
@@ -63,13 +76,17 @@ public class GameStage extends Pane implements Updatable {
     private int waveDelay = 0;
     private final int WAVE_WAIT = 90;
 
-    public GameStage() {
+    public GameStage(Runnable onShowStartScreen) {
+        this.onShowStartScreen = onShowStartScreen;
+        this.soundController = SoundController.getInstance();
+
         this.setPrefWidth(WIDTH);
         this.setPrefHeight(HEIGHT);
 
         loadAllSprites();
         keys = new Keys();
         playerBullets = new ArrayList<>();
+        specialBullets = new ArrayList<>();  // ⭐
         platforms = new ArrayList<>();
         explosions = new ArrayList<>();
 
@@ -83,6 +100,7 @@ public class GameStage extends Pane implements Updatable {
 
     private void loadAllSprites() {
         playerBulletSprite = loadImage("item/bullet-player.png");
+        playerSpecialBulletSprite = loadImage("item/bullet-player-special.png");  // ⭐
         explosionSprite = loadImage("effect/Boom.png");
         liveIconSprite = loadImage("effect/live.png");
     }
@@ -176,10 +194,8 @@ public class GameStage extends Pane implements Updatable {
             platforms.add(new Platform(0, 390, 193, 329));
             platforms.add(new Platform(195, 504, 1085, 216));
         } else if (stage == 3) {
-            platforms.add(new Platform(50, 580, 280, 60));
-            platforms.add(new Platform(480, 580, 280, 60));
-            platforms.add(new Platform(900, 580, 280, 60));
-            platforms.add(new Platform(0, GROUND_Y, WIDTH, 100));
+            // ⭐ Stage 3 มี platform เดียว ครอบคลุมทั้งหน้าจอ
+            platforms.add(new Platform(0, 585, 1280, 135));
         }
     }
 
@@ -191,7 +207,7 @@ public class GameStage extends Pane implements Updatable {
         } else if (stage == 3) {
             minionsCleared = true;
             bossSpawnDelay = BOSS_SPAWN_WAIT;
-            uiHandler.updateWaveLabel("Small Bosses Incoming...", Color.YELLOW);
+            uiHandler.updateWaveLabel("Small Boss Wave 1 Incoming...", Color.YELLOW);
         }
     }
 
@@ -215,10 +231,22 @@ public class GameStage extends Pane implements Updatable {
             lastShoot = now;
         }
 
+        // ⭐ Special bullet (กด F)
+        if (keys.isPressed(KeyCode.F) && now - lastSpecialShoot > SPECIAL_COOLDOWN) {
+            shootSpecialBullet();
+            lastSpecialShoot = now;
+        }
+
         enemyHandler.update(now, player.getCenterX(), player.getCenterY());
         bossHandler.update(now);
 
+        // ⭐ Update Boss3 player position
+        if (bossHandler.getBoss3() != null) {
+            bossHandler.getBoss3().setPlayerPosition(player.getCenterX(), player.getCenterY());
+        }
+
         updatePlayerBullets();
+        updateSpecialBullets();  // ⭐ Update special bullets
         enemyHandler.updateEnemyBullets(explosions, explosionSprite, GROUND_Y);
         bossHandler.updateBossBullets(explosions, explosionSprite, GROUND_Y);
 
@@ -252,7 +280,11 @@ public class GameStage extends Pane implements Updatable {
             if (bossSpawnDelay <= 0) {
                 spawnBoss(currentStage);
                 bossSpawned = true;
-                uiHandler.updateWaveLabel("BOSS FIGHT!", Color.RED);
+                if (currentStage == 3) {
+                    uiHandler.updateWaveLabel("Small Boss Wave 1", Color.ORANGE);
+                } else {
+                    uiHandler.updateWaveLabel("BOSS FIGHT!", Color.RED);
+                }
             }
         }
     }
@@ -270,7 +302,7 @@ public class GameStage extends Pane implements Updatable {
             if (waveDelay <= 0) {
                 bossHandler.spawnSmallBossWave();
                 waitingForNextWave = false;
-                uiHandler.updateWaveLabel("Wave " + bossHandler.getSmallBossWave() + "/3", Color.ORANGE);
+                uiHandler.updateWaveLabel("Small Boss Wave " + bossHandler.getSmallBossWave(), Color.ORANGE);
             }
         }
 
@@ -300,13 +332,68 @@ public class GameStage extends Pane implements Updatable {
     }
 
     private void shootPlayerBullet() {
-        double bulletX = player.getCenterX() + (player.isFacingRight() ? 30 : -30);
-        double bulletY = player.getCenterY();
+        // ⭐ เล่นเสียงยิง
+        soundController.playBulletSound();
 
-        Bullet bullet = new Bullet(playerBulletSprite, bulletX, bulletY,
-                player.isFacingRight(), true);
+        double bulletX, bulletY, speedX, speedY;
+
+        if (player.isShootingUp()) {
+            // ⭐ ยิงขึ้นตรง (จากหัวตัวละคร)
+            bulletX = player.getCenterX();
+            bulletY = player.getY();  // จากหัว
+            speedX = 0;  // ไม่เคลื่อนที่แนวนอน
+            speedY = -10;  // ยิงขึ้นตรง
+        } else if (player.isShootingDown()) {
+            // ⭐ ยิงเฉียงลง 45 องศา (จากตัวละคร)
+            bulletX = player.getCenterX();
+            bulletY = player.getCenterY();
+            double angle = Math.toRadians(45);
+            double speed = 10;
+            speedX = (player.isFacingRight() ? 1 : -1) * speed * Math.cos(angle);
+            speedY = speed * Math.sin(angle);  // ลง
+        } else {
+            // ⭐ ยิงตรง (ธรรมดา)
+            bulletX = player.getCenterX() + (player.isFacingRight() ? 30 : -30);
+            bulletY = player.getCenterY();
+            speedX = player.isFacingRight() ? 10 : -10;
+            speedY = 0;
+        }
+
+        Bullet bullet = new Bullet(playerBulletSprite, bulletX, bulletY, speedX, speedY, true);
         playerBullets.add(bullet);
         this.getChildren().add(bullet);
+    }
+
+    /**
+     * ⭐ ยิงกระสุนพิเศษกระจาย 8 ทิศทาง รอบตัวคาแรคเตอร์
+     * กด F key เพื่อใช้งาน (cooldown 5 วินาที)
+     */
+    private void shootSpecialBullet() {
+        soundController.playBulletSound();
+
+        double centerX = player.getCenterX();
+        double centerY = player.getCenterY();
+        double speed = 8;
+
+        // ⭐ ยิง 8 ทิศทาง (0°, 45°, 90°, 135°, 180°, 225°, 270°, 315°)
+        for (int i = 0; i < 8; i++) {
+            double angle = Math.toRadians(i * 45);
+            double speedX = speed * Math.cos(angle);
+            double speedY = speed * Math.sin(angle);
+
+            SpecialBullet bullet = new SpecialBullet(
+                    playerSpecialBulletSprite,
+                    centerX,
+                    centerY,
+                    speedX,
+                    speedY
+            );
+
+            specialBullets.add(bullet);
+            this.getChildren().add(bullet);
+        }
+
+        System.out.println("💥 Special Bullet fired! 8 directions");
     }
 
     private void updatePlayerBullets() {
@@ -326,6 +413,129 @@ public class GameStage extends Pane implements Updatable {
                 this.getChildren().remove(b);
             }
         }
+    }
+
+    /**
+     * ⭐ Update special bullets - แรงกว่ากระสุนธรรมดา
+     */
+    private void updateSpecialBullets() {
+        Iterator<SpecialBullet> it = specialBullets.iterator();
+        while (it.hasNext()) {
+            SpecialBullet b = it.next();
+            b.update();
+
+            if (!b.isActive()) {
+                it.remove();
+                this.getChildren().remove(b);
+                continue;
+            }
+
+            if (checkEnemyHitSpecial(b) || checkBossHitSpecial(b)) {
+                it.remove();
+                this.getChildren().remove(b);
+            }
+        }
+    }
+
+    private boolean checkEnemyHitSpecial(SpecialBullet bullet) {
+        for (var enemy : enemyHandler.getRegularEnemies()) {
+            double bx = bullet.getCenterX();
+            double by = bullet.getCenterY();
+
+            if (enemy.isAlive() &&
+                    bx >= enemy.getX() && bx <= enemy.getX() + enemy.getWidth() &&
+                    by >= enemy.getY() && by <= enemy.getY() + enemy.getHeight()) {
+
+                enemy.takeDamage(bullet.getDamage());  // ⭐ แรงกว่า (damage = 3)
+                uiHandler.addScore(1);
+                createExplosion(bullet.getX(), bullet.getY());
+                return true;
+            }
+        }
+
+        for (var enemy : enemyHandler.getSecondTierEnemies()) {
+            double bx = bullet.getCenterX();
+            double by = bullet.getCenterY();
+
+            if (enemy.isAlive() &&
+                    bx >= enemy.getX() && bx <= enemy.getX() + enemy.getWidth() &&
+                    by >= enemy.getY() && by <= enemy.getY() + enemy.getHeight()) {
+
+                enemy.takeDamage(bullet.getDamage());  // ⭐ แรงกว่า
+                uiHandler.addScore(2);
+                createExplosion(bullet.getX(), bullet.getY());
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private boolean checkBossHitSpecial(SpecialBullet bullet) {
+        // Check WallBoss
+        if (bossHandler.getWallBoss() != null) {
+            double bx = bullet.getCenterX();
+            double by = bullet.getCenterY();
+            var boss = bossHandler.getWallBoss();
+
+            if (boss.isAlive() &&
+                    bx >= boss.getBossX() && bx <= boss.getBossX() + boss.getBossWidth() &&
+                    by >= boss.getBossY() && by <= boss.getBossY() + boss.getBossHeight()) {
+
+                boss.takeDamage(bullet.getDamage());  // ⭐ แรงกว่า
+                createExplosion(bullet.getX(), bullet.getY());
+                return true;
+            }
+        }
+
+        // Check JavaBoss
+        if (bossHandler.getJavaBoss() != null) {
+            double bx = bullet.getCenterX();
+            double by = bullet.getCenterY();
+            var boss = bossHandler.getJavaBoss();
+
+            if (boss.isAlive() &&
+                    bx >= boss.getBossX() && bx <= boss.getBossX() + boss.getBossWidth() &&
+                    by >= boss.getBossY() && by <= boss.getBossY() + boss.getBossHeight()) {
+
+                boss.takeDamage(bullet.getDamage());  // ⭐ แรงกว่า
+                createExplosion(bullet.getX(), bullet.getY());
+                return true;
+            }
+        }
+
+        // Check SmallBoss
+        for (var boss : bossHandler.getActiveSmallBosses()) {
+            double bx = bullet.getCenterX();
+            double by = bullet.getCenterY();
+
+            if (boss.isAlive() &&
+                    bx >= boss.getX() && bx <= boss.getX() + boss.getBossWidth() &&
+                    by >= boss.getY() && by <= boss.getY() + boss.getBossHeight()) {
+
+                boss.takeDamage(bullet.getDamage());  // ⭐ แรงกว่า
+                createExplosion(bullet.getX(), bullet.getY());
+                return true;
+            }
+        }
+
+        // Check Boss3
+        if (bossHandler.getBoss3() != null) {
+            double bx = bullet.getCenterX();
+            double by = bullet.getCenterY();
+            var boss = bossHandler.getBoss3();
+
+            if (boss.isAlive() &&
+                    bx >= boss.getX() && bx <= boss.getX() + boss.getBossWidth() &&
+                    by >= boss.getY() && by <= boss.getY() + boss.getBossHeight()) {
+
+                boss.takeDamage(bullet.getDamage());  // ⭐ แรงกว่า
+                createExplosion(bullet.getX(), bullet.getY());
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private boolean checkEnemyHit(Bullet bullet) {
@@ -361,9 +571,9 @@ public class GameStage extends Pane implements Updatable {
             return true;
         }
 
-        for (var boss : bossHandler.getSmallBosses()) {
+        for (var boss : bossHandler.getActiveSmallBosses()) {
             if (boss.checkBulletCollision(bullet)) {
-                uiHandler.addScore(1);
+                uiHandler.addScore(3);
                 createExplosion(bullet.getX(), bullet.getY());
                 return true;
             }
@@ -394,7 +604,7 @@ public class GameStage extends Pane implements Updatable {
         if (bossHandler.getJavaBoss() != null) {
             checkBulletPlayerHit(bossHandler.getJavaBoss().getBullets());
         }
-        for (var boss : bossHandler.getSmallBosses()) {
+        for (var boss : bossHandler.getActiveSmallBosses()) {
             checkBulletPlayerHit(boss.getBullets());
         }
         if (bossHandler.getBoss3() != null) {
@@ -427,6 +637,9 @@ public class GameStage extends Pane implements Updatable {
         uiHandler.createLiveIcons(playerLives);
 
         if (playerLives <= 0) {
+            // ⭐ เล่นเสียงตาย
+            soundController.playDeadSound();
+
             gameOver = true;
             showGameOver();
         } else {
@@ -499,13 +712,25 @@ public class GameStage extends Pane implements Updatable {
         scoreText.setTranslateX(WIDTH / 2 - 120);
         scoreText.setTranslateY(HEIGHT / 2 + 20);
 
+        // ⭐ Restart button
         Button restartButton = new Button("RESTART");
         restartButton.setFont(Font.font("Arial", 24));
-        restartButton.setTranslateX(WIDTH / 2 - 60);
+        restartButton.setTranslateX(WIDTH / 2 - 120);
         restartButton.setTranslateY(HEIGHT / 2 + 80);
         restartButton.setOnAction(e -> restartGame());
 
-        this.getChildren().addAll(bg, gameOverText, scoreText, restartButton);
+        // ⭐ Home button (ย้อนกลับไปหน้า Start Screen)
+        Button homeButton = new Button("HOME");
+        homeButton.setFont(Font.font("Arial", 24));
+        homeButton.setTranslateX(WIDTH / 2 + 20);
+        homeButton.setTranslateY(HEIGHT / 2 + 80);
+        homeButton.setOnAction(e -> {
+            if (onShowStartScreen != null) {
+                onShowStartScreen.run();
+            }
+        });
+
+        this.getChildren().addAll(bg, gameOverText, scoreText, restartButton, homeButton);
     }
 
     private void showGameCompleted() {

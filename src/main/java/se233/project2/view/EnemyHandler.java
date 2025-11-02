@@ -84,6 +84,15 @@ public class EnemyHandler {
     }
 
     public void updateEnemyBullets(List<Explosion> explosions, Image explosionSprite, int groundY) {
+        // Stage 1 platforms
+        final double P1_X = 544, P1_Y = 516, P1_W = 168;
+        final double P2_X = 712, P2_Y = 552, P2_W = 568;
+
+        // Stage 2 platform
+        final double STAGE2_PLATFORM_X = 196;
+        final double STAGE2_PLATFORM_Y = 504;
+        final double STAGE2_PLATFORM_WIDTH = 1084;
+
         // Regular enemies
         for (RegularEnemy enemy : regularEnemies) {
             Iterator<Bullet> it = enemy.getBullets().iterator();
@@ -94,8 +103,25 @@ public class EnemyHandler {
                     gamePane.getChildren().add(bullet);
                 }
 
-                if (!bullet.isActive() || bullet.checkGroundCollision(groundY)) {
-                    if (bullet.checkGroundCollision(groundY)) {
+                double bx = bullet.getX();
+                double by = bullet.getY();
+
+                // ⭐ Check Stage 1 platform collisions
+                boolean hitPlatform1 = by >= P1_Y && bx >= P1_X && bx <= P1_X + P1_W;
+                boolean hitPlatform2 = by >= P2_Y && bx >= P2_X && bx <= P2_X + P2_W;
+
+                // ⭐ Check Stage 2 platform collision
+                boolean hitStage2Platform = by >= STAGE2_PLATFORM_Y &&
+                        bx >= STAGE2_PLATFORM_X &&
+                        bx <= STAGE2_PLATFORM_X + STAGE2_PLATFORM_WIDTH;
+
+                // ⭐ Clean up if enemy is dead OR bullet hits something
+                if (!enemy.isAlive() || !bullet.isActive() ||
+                        bullet.checkGroundCollision(groundY) ||
+                        hitPlatform1 || hitPlatform2 || hitStage2Platform) {
+
+                    if (bullet.checkGroundCollision(groundY) || hitPlatform1 ||
+                            hitPlatform2 || hitStage2Platform) {
                         createExplosion(bullet.getX(), bullet.getY(), explosions, explosionSprite);
                     }
                     gamePane.getChildren().remove(bullet);
@@ -114,8 +140,18 @@ public class EnemyHandler {
                     gamePane.getChildren().add(bullet);
                 }
 
-                if (!bullet.isActive() || bullet.checkGroundCollision(groundY)) {
-                    if (bullet.checkGroundCollision(groundY)) {
+                double bx = bullet.getX();
+                double by = bullet.getY();
+
+                boolean hitStage2Platform = by >= STAGE2_PLATFORM_Y &&
+                        bx >= STAGE2_PLATFORM_X &&
+                        bx <= STAGE2_PLATFORM_X + STAGE2_PLATFORM_WIDTH;
+
+                // ⭐ Clean up if enemy is dead OR bullet hits something
+                if (!enemy.isAlive() || !bullet.isActive() ||
+                        bullet.checkGroundCollision(groundY) || hitStage2Platform) {
+
+                    if (bullet.checkGroundCollision(groundY) || hitStage2Platform) {
                         createExplosion(bullet.getX(), bullet.getY(), explosions, explosionSprite);
                     }
                     gamePane.getChildren().remove(bullet);
@@ -132,10 +168,19 @@ public class EnemyHandler {
     }
 
     public void clearAll() {
+        // ⭐ Clean up all bullets when clearing enemies
         for (RegularEnemy enemy : regularEnemies) {
+            for (Bullet bullet : enemy.getBullets()) {
+                gamePane.getChildren().remove(bullet);
+            }
+            enemy.getBullets().clear();
             gamePane.getChildren().remove(enemy);
         }
         for (SecondTierEnemy enemy : secondTierEnemies) {
+            for (Bullet bullet : enemy.getBullets()) {
+                gamePane.getChildren().remove(bullet);
+            }
+            enemy.getBullets().clear();
             gamePane.getChildren().remove(enemy);
         }
         regularEnemies.clear();

@@ -12,9 +12,9 @@ import java.util.List;
 
 /**
  * Boss3 (Last Boss) - บอสตัวสุดท้ายของ Stage 3
- * - แข็งแกร่งกว่า SmallBoss
- * - ยิงกระสุนหลายทิศทาง (pattern attack)
- * - เคลื่อนที่แบบซิกแซก
+ * - อยู่นิ่งที่ตำแหน่งขวาสุด
+ * - ยิงกระสุนเล็งไปที่ player โดยตรง (animated bullet)
+ * - กระสุนที่ตกพื้นจะ Boom
  */
 public class Boss3 extends Pane {
     private AnimatedSprite sprite;
@@ -26,8 +26,8 @@ public class Boss3 extends Pane {
     private Image bulletSprite;
 
     private double x, y;
-    private double width = 180;  // ใหญ่กว่า SmallBoss
-    private double height = 180;
+    private double width = 150;   // ลดขนาดจาก 180 → 150
+    private double height = 150;  // ลดขนาดจาก 180 → 150
     private int health;
     private int maxHealth;
     private boolean alive = true;
@@ -36,21 +36,16 @@ public class Boss3 extends Pane {
     private int animationTick = 0;
     private final int ANIMATION_SPEED = 6;
 
-    // Movement (เดินจากขวามาซ้าย แล้วซิกแซก)
-    private double velocityX = -2.0;
-    private double velocityY = 2.0;
-    private double minX = 700;  // หยุดตรงนี้แล้วเริ่มซิกแซก
-    private double minY = 150;
-    private double maxY = 450;
-    private boolean reachedPosition = false;
-
     // Shooting
-    private List<Bullet> bullets;
+    private List<AnimatedBullet> bullets;
     private long lastShoot = 0;
-    private long shootInterval = 1_500_000_000; // 1.5 วินาที (เร็วกว่า SmallBoss)
-    private int shootPattern = 0; // 0=straight, 1=triple, 2=spread
+    private long shootInterval = 1_200_000_000; // 1.2 วินาที
 
-    // Sprite sheet (4 frames เหมือน SmallBoss หรือปรับได้)
+    // Player tracking
+    private double playerX = 0;
+    private double playerY = 0;
+
+    // Sprite sheet
     private static final int SPRITE_WIDTH = 32;
     private static final int SPRITE_HEIGHT = 32;
     private static final int TOTAL_FRAMES = 4;
@@ -115,7 +110,6 @@ public class Boss3 extends Pane {
                 this.getChildren().add(weaponEffect);
             }
         } else {
-            // Fallback: วงกลมสีแดงเข้ม
             fallbackCircle = new Circle(width / 2, Color.DARKRED);
             this.getChildren().add(fallbackCircle);
         }
@@ -124,35 +118,20 @@ public class Boss3 extends Pane {
     public void update(long now) {
         if (!alive) return;
 
-        // Movement: เดินจากขวามาซ้ายก่อน
-        if (!reachedPosition) {
-            x += velocityX;
-            if (x <= minX) {
-                x = minX;
-                reachedPosition = true;
-            }
-            this.setTranslateX(x);
-        } else {
-            // ซิกแซกขึ้นลง
-            y += velocityY;
-            if (y <= minY || y >= maxY) {
-                velocityY = -velocityY;
-            }
-            this.setTranslateY(y);
-        }
+        // ⭐ Boss3 stays stationary (no movement)
 
         // Update animation
         updateAnimation();
 
-        // Shooting (pattern attack)
-        if (reachedPosition && now - lastShoot > shootInterval) {
-            shootPattern();
+        // ⭐ Shooting - aim at player
+        if (now - lastShoot > shootInterval) {
+            shootAtPlayer();
             lastShoot = now;
         }
 
         // Update bullets
-        List<Bullet> toRemove = new ArrayList<>();
-        for (Bullet bullet : bullets) {
+        List<AnimatedBullet> toRemove = new ArrayList<>();
+        for (AnimatedBullet bullet : bullets) {
             bullet.update();
             if (!bullet.isActive()) {
                 toRemove.add(bullet);
@@ -175,35 +154,30 @@ public class Boss3 extends Pane {
         }
     }
 
-    private void shootPattern() {
+    private void shootAtPlayer() {
         // Show weapon effect
         if (weaponEffect != null) {
             weaponEffect.setVisible(true);
             weaponEffect.reset();
         }
 
-        double bulletX = x - 60;
-        double bulletY = y + height / 2;
+        // ⭐ ยิงจากตรงกลางท้อง (center of the boss)
+        double bulletX = x + (width / 2);
+        double bulletY = y + (height / 2);
 
-        // Cycle through patterns: straight → triple → spread
-        if (shootPattern == 0) {
-            // Straight shot
-            bullets.add(new Bullet(bulletSprite, bulletX, bulletY, -7, 0, false));
-        } else if (shootPattern == 1) {
-            // Triple shot (straight + diagonal)
-            bullets.add(new Bullet(bulletSprite, bulletX, bulletY, -7, 0, false));
-            bullets.add(new Bullet(bulletSprite, bulletX, bulletY, -6, -2, false));
-            bullets.add(new Bullet(bulletSprite, bulletX, bulletY, -6, 2, false));
-        } else {
-            // Spread shot (5 directions)
-            bullets.add(new Bullet(bulletSprite, bulletX, bulletY, -7, 0, false));
-            bullets.add(new Bullet(bulletSprite, bulletX, bulletY, -6, -3, false));
-            bullets.add(new Bullet(bulletSprite, bulletX, bulletY, -6, 3, false));
-            bullets.add(new Bullet(bulletSprite, bulletX, bulletY, -5, -5, false));
-            bullets.add(new Bullet(bulletSprite, bulletX, bulletY, -5, 5, false));
-        }
+        // ⭐ Calculate direction to player
+        double dx = playerX - bulletX;
+        double dy = playerY - bulletY;
+        double distance = Math.sqrt(dx * dx + dy * dy);
 
-        shootPattern = (shootPattern + 1) % 3;
+        // Normalize and set speed
+        double speed = 7;
+        double vx = (dx / distance) * speed;
+        double vy = (dy / distance) * speed;
+
+        // Create animated bullet aiming at player
+        AnimatedBullet bullet = new AnimatedBullet(bulletSprite, bulletX, bulletY, vx, vy);
+        bullets.add(bullet);
 
         // Hide weapon effect
         new Thread(() -> {
@@ -216,6 +190,11 @@ public class Boss3 extends Pane {
                 e.printStackTrace();
             }
         }).start();
+    }
+
+    public void setPlayerPosition(double playerX, double playerY) {
+        this.playerX = playerX;
+        this.playerY = playerY;
     }
 
     public void takeDamage(int damage) {
@@ -258,11 +237,62 @@ public class Boss3 extends Pane {
 
     // Getters
     public boolean isAlive() { return alive; }
-    public List<Bullet> getBullets() { return bullets; }
+    public List<Bullet> getBullets() {
+        // Convert to List<Bullet> for compatibility
+        return new ArrayList<>(bullets);
+    }
     public void removeBullet(Bullet bullet) { bullets.remove(bullet); }
     public double getX() { return x; }
     public double getY() { return y; }
     public double getBossWidth() { return width; }
     public double getBossHeight() { return height; }
     public int getHealth() { return health; }
+
+    /**
+     * AnimatedBullet - Inner class สำหรับกระสุนที่มี animation (4 frames)
+     * boss3_bullet.png: 4 frames แนวนอน
+     */
+    private class AnimatedBullet extends Bullet {
+        private AnimatedSprite bulletSprite;
+        private int animTick = 0;
+        private final int ANIM_SPEED = 4;
+
+        public AnimatedBullet(Image sprite, double x, double y, double vx, double vy) {
+            super(sprite, x, y, vx, vy, false);
+
+            if (sprite != null) {
+                this.getChildren().clear();
+                // Assuming 4 frames in boss3_bullet.png
+                bulletSprite = new AnimatedSprite(
+                        sprite,
+                        4,      // totalColumns = 4 frames
+                        4,      // frameCount = 4 frames
+                        0,      // offsetX = 0
+                        0,      // offsetY = 0
+                        32,     // width (adjust based on your sprite)
+                        32,     // height
+                        32,     // spacingX
+                        32      // spacingY
+                );
+                bulletSprite.setFitWidth(40);
+                bulletSprite.setFitHeight(40);
+                bulletSprite.setPreserveRatio(true);
+                bulletSprite.setSmooth(false);
+                this.getChildren().add(bulletSprite);
+            }
+        }
+
+        @Override
+        public void update() {
+            super.update();
+
+            if (bulletSprite != null) {
+                animTick++;
+                if (animTick >= ANIM_SPEED) {
+                    animTick = 0;
+                    bulletSprite.tick();
+                }
+            }
+        }
+    }
 }

@@ -18,6 +18,7 @@ public class BossHandler {
     private WallBoss wallBoss;
     private JavaBoss javaBoss;
     private List<SmallBoss> smallBosses;
+    private List<SmallBoss> activeSmallBosses;  // ⭐ Track currently active small bosses
     private Boss3 boss3;
 
     private Image wallBossNormalSprite, wallBossDeadSprite, wallBossBulletSprite;
@@ -34,6 +35,7 @@ public class BossHandler {
                        Image b3Sprite, Image b3Weapon, Image b3Bullet) {
         this.gamePane = gamePane;
         this.smallBosses = new ArrayList<>();
+        this.activeSmallBosses = new ArrayList<>();
 
         this.wallBossNormalSprite = wbNormal;
         this.wallBossDeadSprite = wbDead;
@@ -67,41 +69,56 @@ public class BossHandler {
         gamePane.getChildren().add(javaBoss);
     }
 
+    // ⭐ Spawn small bosses ONE AT A TIME for each wave
     public void spawnSmallBossWave() {
         if (smallBossWave >= 3) return;
 
+        double startX = 1400;  // Start off-screen right
         double bossY = 460;
-        double[] xPositions = {1350, 1450};
-        double[] minXPositions = {
-                smallBossWave == 0 ? 150 : (smallBossWave == 1 ? 550 : 950),
-                smallBossWave == 0 ? 230 : (smallBossWave == 1 ? 630 : 1030)
+
+        // Target X positions for each wave
+        double[] targetPositions = {
+                200,   // Wave 1 - land at position 200
+                600,   // Wave 2 - land at position 600
+                1000   // Wave 3 - land at position 1000
         };
 
-        for (int i = 0; i < 2; i++) {
-            SmallBoss boss = new SmallBoss(
-                    smallBossSprite, smallBossWeaponSprite, smallBossBulletSprite,
-                    xPositions[i], bossY, minXPositions[i], 10
-            );
-            smallBosses.add(boss);
-            gamePane.getChildren().add(boss);
-        }
+        double targetX = targetPositions[smallBossWave];
+
+        SmallBoss boss = new SmallBoss(
+                smallBossSprite, smallBossWeaponSprite, smallBossBulletSprite,
+                startX, bossY, targetX, 10
+        );
+
+        smallBosses.add(boss);
+        activeSmallBosses.add(boss);
+        gamePane.getChildren().add(boss);
+
+        System.out.println("🔥 Spawned SmallBoss wave " + (smallBossWave + 1) + " targeting X=" + targetX);
 
         smallBossWave++;
     }
 
     public void spawnBoss3() {
         clearAll();
+        // Stage 3 platform: y=587
+        // Boss3 width=150, height=150
+        // Center boss horizontally: x = (1280 - 150) / 2 = 565
+        // Place boss on platform: y = 587 - 150 = 437
         boss3 = new Boss3(boss3Sprite, boss3WeaponSprite, boss3BulletSprite,
-                1200, 300, 50);
+                565, 437, 50);
         gamePane.getChildren().add(boss3);
     }
 
     public void update(long now) {
         if (wallBoss != null && wallBoss.isAlive()) wallBoss.update(now);
         if (javaBoss != null && javaBoss.isAlive()) javaBoss.update(now);
-        for (SmallBoss boss : smallBosses) {
+
+        // ⭐ Only update active small bosses
+        for (SmallBoss boss : activeSmallBosses) {
             if (boss.isAlive()) boss.update(now);
         }
+
         if (boss3 != null && boss3.isAlive()) boss3.update(now);
     }
 
@@ -111,15 +128,16 @@ public class BossHandler {
         }
 
         if (javaBoss != null) {
-            updateGenericBossBullets(javaBoss.getBullets(), explosions, explosionSprite, groundY);
+            updateGenericBossBullets(javaBoss.getBullets(), javaBoss.isAlive(), explosions, explosionSprite, groundY);
         }
 
-        for (SmallBoss boss : smallBosses) {
-            updateGenericBossBullets(boss.getBullets(), explosions, explosionSprite, groundY);
+        // ⭐ Update small boss bullets with cleanup check
+        for (SmallBoss boss : activeSmallBosses) {
+            updateGenericBossBullets(boss.getBullets(), boss.isAlive(), explosions, explosionSprite, groundY);
         }
 
         if (boss3 != null) {
-            updateGenericBossBullets(boss3.getBullets(), explosions, explosionSprite, groundY);
+            updateBoss3Bullets(boss3.getBullets(), boss3.isAlive(), explosions, explosionSprite, groundY);
         }
     }
 
@@ -140,8 +158,9 @@ public class BossHandler {
             boolean hit1 = by >= P1_Y && bx >= P1_X && bx <= P1_X + P1_W;
             boolean hit2 = by >= P2_Y && bx >= P2_X && bx <= P2_X + P2_W;
 
-            if (hit1 || hit2 || bullet.checkGroundCollision(groundY) || !bullet.isActive()) {
-                if (hit1 || hit2) {
+            // ⭐ Clean up if boss is dead OR bullet hits something
+            if (!boss.isAlive() || hit1 || hit2 || bullet.checkGroundCollision(groundY) || !bullet.isActive()) {
+                if (hit1 || hit2 || bullet.checkGroundCollision(groundY)) {
                     createExplosion(bx, by, explosions, explosionSprite);
                 }
                 gamePane.getChildren().remove(bullet);
@@ -150,12 +169,46 @@ public class BossHandler {
         }
     }
 
-    private void updateGenericBossBullets(List<Bullet> bullets, List<Explosion> explosions, Image explosionSprite, int groundY) {
+    private void updateGenericBossBullets(List<Bullet> bullets, boolean bossAlive,
+                                          List<Explosion> explosions, Image explosionSprite, int groundY) {
         // Stage 2 Platform collision area
         final double PLATFORM_X = 196;
         final double PLATFORM_Y = 503;
         final double PLATFORM_WIDTH = 1084;
-        final double PLATFORM_HEIGHT = 217;
+
+        Iterator<Bullet> it = bullets.iterator();
+        while (it.hasNext()) {
+            Bullet bullet = it.next();
+
+            if (!gamePane.getChildren().contains(bullet)) {
+                gamePane.getChildren().add(bullet);
+            }
+
+            double bx = bullet.getX();
+            double by = bullet.getY();
+
+            boolean hitPlatform = by >= PLATFORM_Y &&
+                    bx >= PLATFORM_X &&
+                    bx <= PLATFORM_X + PLATFORM_WIDTH;
+
+            // ⭐ Clean up if boss is dead OR bullet hits something
+            if (!bossAlive || !bullet.isActive() || bullet.checkGroundCollision(groundY) || hitPlatform) {
+                if (bullet.checkGroundCollision(groundY) || hitPlatform) {
+                    createExplosion(bullet.getX(), bullet.getY(), explosions, explosionSprite);
+                }
+                gamePane.getChildren().remove(bullet);
+                it.remove();
+            }
+        }
+    }
+
+    // ⭐ Boss3 bullets track player and explode on ground
+    private void updateBoss3Bullets(List<Bullet> bullets, boolean bossAlive,
+                                    List<Explosion> explosions, Image explosionSprite, int groundY) {
+        // Stage 3 platform: x=0, y=585, width=1280, height=135
+        final double PLATFORM_X = 0;
+        final double PLATFORM_Y = 585;
+        final double PLATFORM_WIDTH = 1280;
 
         Iterator<Bullet> it = bullets.iterator();
         while (it.hasNext()) {
@@ -173,7 +226,8 @@ public class BossHandler {
                     bx >= PLATFORM_X &&
                     bx <= PLATFORM_X + PLATFORM_WIDTH;
 
-            if (!bullet.isActive() || bullet.checkGroundCollision(groundY) || hitPlatform) {
+            // ⭐ Clean up if boss is dead OR bullet hits something
+            if (!bossAlive || !bullet.isActive() || bullet.checkGroundCollision(groundY) || hitPlatform) {
                 if (bullet.checkGroundCollision(groundY) || hitPlatform) {
                     createExplosion(bullet.getX(), bullet.getY(), explosions, explosionSprite);
                 }
@@ -190,16 +244,37 @@ public class BossHandler {
     }
 
     public void clearAll() {
-        if (wallBoss != null) gamePane.getChildren().remove(wallBoss);
-        if (javaBoss != null) gamePane.getChildren().remove(javaBoss);
-        for (SmallBoss boss : smallBosses) gamePane.getChildren().remove(boss);
-        if (boss3 != null) gamePane.getChildren().remove(boss3);
+        if (wallBoss != null) {
+            cleanupBossBullets(wallBoss.getBossBullets());
+            gamePane.getChildren().remove(wallBoss);
+        }
+        if (javaBoss != null) {
+            cleanupBossBullets(javaBoss.getBullets());
+            gamePane.getChildren().remove(javaBoss);
+        }
+        for (SmallBoss boss : smallBosses) {
+            cleanupBossBullets(boss.getBullets());
+            gamePane.getChildren().remove(boss);
+        }
+        if (boss3 != null) {
+            cleanupBossBullets(boss3.getBullets());
+            gamePane.getChildren().remove(boss3);
+        }
 
         wallBoss = null;
         javaBoss = null;
         smallBosses.clear();
+        activeSmallBosses.clear();
         boss3 = null;
         smallBossWave = 0;
+    }
+
+    // ⭐ Helper method to clean up bullets
+    private void cleanupBossBullets(List<Bullet> bullets) {
+        for (Bullet bullet : bullets) {
+            gamePane.getChildren().remove(bullet);
+        }
+        bullets.clear();
     }
 
     public boolean isCurrentBossDefeated(int stage) {
@@ -214,13 +289,15 @@ public class BossHandler {
     }
 
     public boolean shouldSpawnNextSmallBossWave() {
-        return smallBossWave < 3 && smallBosses.stream().allMatch(b -> !b.isAlive());
+        // ⭐ Spawn next wave only if current wave is defeated and we haven't spawned all 3 waves
+        return smallBossWave < 3 && activeSmallBosses.stream().allMatch(b -> !b.isAlive());
     }
 
     // Getters
     public WallBoss getWallBoss() { return wallBoss; }
     public JavaBoss getJavaBoss() { return javaBoss; }
     public List<SmallBoss> getSmallBosses() { return smallBosses; }
+    public List<SmallBoss> getActiveSmallBosses() { return activeSmallBosses; }
     public Boss3 getBoss3() { return boss3; }
     public int getSmallBossWave() { return smallBossWave; }
 }
