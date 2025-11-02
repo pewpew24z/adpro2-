@@ -3,7 +3,6 @@ package se233.project2.model.boss;
 import javafx.scene.layout.Pane;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Circle;
-import javafx.scene.shape.Rectangle;
 import se233.project2.model.AnimatedSprite;
 import se233.project2.model.item.Bullet;
 import javafx.scene.image.Image;
@@ -12,24 +11,20 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * SmallBoss - บอสตัวเล็กที่เดินมาจากขวา
- * - มี 4 frames animation
- * - ยิงไฟแนวตรง (weapon_small-boss sprite sheet 3 frames)
- * - ระยะพ่นไฟสั้น
+ * SmallBoss - บอสตัวเล็กที่กระโดดมาโจมตี
+ * ใช้ small-boss2.png (sprite sheet 4 frames)
  */
 public class SmallBoss extends Pane {
-    private Rectangle healthBar;
-    private Rectangle healthBarBg;
     private AnimatedSprite sprite;
+    private AnimatedSprite weaponEffect;
     private Circle fallbackCircle;
-    private AnimatedSprite weaponEffect; // เอฟเฟกต์พ่นไฟ
 
     private Image spriteSheet;
     private Image weaponSprite;
     private Image bulletSprite;
 
     private double x, y;
-    private double width = 120;  // ขนาดพอเหมาะ
+    private double width = 120;
     private double height = 120;
     private int health;
     private int maxHealth;
@@ -39,33 +34,35 @@ public class SmallBoss extends Pane {
     private int animationTick = 0;
     private final int ANIMATION_SPEED = 6;
 
-    // Movement (เดินจากขวามาซ้าย)
-    private double velocityX = -1.5;  // ช้าๆ เพื่อให้หลบได้
-    private double minX;  // ตำแหน่งที่จะหยุด (รับจาก constructor)
-    private boolean reachedPosition = false;
+    // Movement - กระโดดมาหา player
+    private double velocityX = 0;
+    private double velocityY = 0;
+    private double targetX = 400;
+    private boolean hasJumped = false;
+    private boolean onGround = false;
+    private final double GRAVITY = 0.8;
+    private final double JUMP_FORCE = -15;
+    private final double GROUND_Y = 540;
 
     // Shooting
     private List<Bullet> bullets;
     private long lastShoot = 0;
-    private long shootInterval = 2_000_000_000; // 2 วินาที (ช้า)
+    private long shootInterval = 2_000_000_000;
 
-    // Sprite sheet
+    // Sprite sheet (4 frames)
     private static final int SPRITE_WIDTH = 32;
     private static final int SPRITE_HEIGHT = 32;
     private static final int TOTAL_FRAMES = 4;
 
-    private static final int WEAPON_FRAMES = 3;
+    private static final int WEAPON_FRAMES = 4;
     private static final int WEAPON_WIDTH = 32;
     private static final int WEAPON_HEIGHT = 32;
 
-    // Fire range
-    private static final double FIRE_RANGE = 250; // ระยะพ่นไฟ (ไม่ไกลมาก)
-
     public SmallBoss(Image spriteSheet, Image weaponSprite, Image bulletSprite,
-                     double x, double y, double minX, int maxHealth) {
+                     double x, double y, double targetX, int maxHealth) {
         this.x = x;
         this.y = y;
-        this.minX = minX;  // รับค่า minX จาก parameter
+        this.targetX = targetX;
         this.maxHealth = maxHealth;
         this.health = maxHealth;
         this.spriteSheet = spriteSheet;
@@ -97,7 +94,6 @@ public class SmallBoss extends Pane {
             sprite.setSmooth(false);
             this.getChildren().add(sprite);
 
-            // Setup weapon effect (ซ่อนไว้ก่อน)
             if (weaponSprite != null) {
                 weaponEffect = new AnimatedSprite(
                         weaponSprite,
@@ -109,17 +105,16 @@ public class SmallBoss extends Pane {
                         WEAPON_WIDTH,
                         WEAPON_HEIGHT
                 );
-                weaponEffect.setFitWidth(80);
-                weaponEffect.setFitHeight(80);
+                weaponEffect.setFitWidth(100);
+                weaponEffect.setFitHeight(100);
                 weaponEffect.setPreserveRatio(true);
                 weaponEffect.setSmooth(false);
-                weaponEffect.setTranslateX(-60); // ออกมาทางซ้าย (ปาก)
-                weaponEffect.setTranslateY(height / 2 - 40);
+                weaponEffect.setTranslateX(-80);
+                weaponEffect.setTranslateY(height / 2 - 50);
                 weaponEffect.setVisible(false);
                 this.getChildren().add(weaponEffect);
             }
         } else {
-            // Fallback circle
             fallbackCircle = new Circle(width / 2, Color.PURPLE);
             this.getChildren().add(fallbackCircle);
         }
@@ -128,22 +123,40 @@ public class SmallBoss extends Pane {
     public void update(long now) {
         if (!alive) return;
 
-        // Movement: เดินจากขวามาซ้ายจนถึง position
-        if (!reachedPosition) {
-            x += velocityX;
-            if (x <= minX) {
-                x = minX;
-                reachedPosition = true;
-                velocityX = 0;
-            }
-            this.setTranslateX(x);
+        // Jump towards target
+        if (!hasJumped) {
+            velocityX = (targetX - x) / 60;
+            velocityY = JUMP_FORCE;
+            hasJumped = true;
+            onGround = false;
         }
+
+        // Apply gravity
+        if (!onGround) {
+            velocityY += GRAVITY;
+            if (velocityY > 15) velocityY = 15;
+        }
+
+        // Update position
+        x += velocityX;
+        y += velocityY;
+
+        // Check ground collision
+        if (y >= GROUND_Y) {
+            y = GROUND_Y;
+            velocityY = 0;
+            velocityX = 0;
+            onGround = true;
+        }
+
+        this.setTranslateX(x);
+        this.setTranslateY(y);
 
         // Update animation
         updateAnimation();
 
-        // Shooting (ยิงช้าๆ)
-        if (reachedPosition && now - lastShoot > shootInterval) {
+        // Shooting
+        if (onGround && now - lastShoot > shootInterval) {
             shoot();
             lastShoot = now;
         }
@@ -167,7 +180,6 @@ public class SmallBoss extends Pane {
             animationTick = 0;
             sprite.tick();
 
-            // Animate weapon effect too if visible
             if (weaponEffect != null && weaponEffect.isVisible()) {
                 weaponEffect.tick();
             }
@@ -175,28 +187,25 @@ public class SmallBoss extends Pane {
     }
 
     private void shoot() {
-        // Show weapon effect
         if (weaponEffect != null) {
             weaponEffect.setVisible(true);
             weaponEffect.reset();
         }
 
-        // Create fire bullet (แนวตรงไปทางซ้าย)
-        double bulletX = x - 40;  // ออกจากปาก
+        double bulletX = x - 40;
         double bulletY = y + height / 2;
 
         Bullet bullet = new Bullet(
                 bulletSprite,
                 bulletX,
                 bulletY,
-                -6,  // ไปทางซ้ายเร็วปานกลาง
-                0,   // แนวตรง
-                false // boss bullet
+                -6,
+                0,
+                false
         );
 
         bullets.add(bullet);
 
-        // Hide weapon effect after a short delay
         new Thread(() -> {
             try {
                 Thread.sleep(300);

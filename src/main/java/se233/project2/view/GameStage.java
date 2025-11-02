@@ -1,5 +1,6 @@
 package se233.project2.view;
 
+import javafx.scene.control.Button;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.layout.Pane;
@@ -11,14 +12,8 @@ import se233.project2.controller.Updatable;
 import se233.project2.model.GameCharacter;
 import se233.project2.model.Keys;
 import se233.project2.model.Platform;
-import se233.project2.model.item.Bullet;
-import se233.project2.model.boss.WallBoss;
-import se233.project2.model.boss.JavaBoss;
-import se233.project2.model.boss.SmallBoss;
-import se233.project2.model.boss.Boss3;
-import se233.project2.model.enemy.RegularEnemy;
-import se233.project2.model.enemy.SecondTierEnemy;
 import se233.project2.model.effect.Explosion;
+import se233.project2.model.item.Bullet;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -32,53 +27,20 @@ public class GameStage extends Pane implements Updatable {
     private ImageView backgroundImageView;
     private GameCharacter player;
     private Keys keys;
-    private Score scoreLabel;
-    private Text livesLabel;
-    private Text stageLabel;
-    private Text waveLabel;
+
+    // Handlers
+    private GameUIHandler uiHandler;
+    private EnemyHandler enemyHandler;
+    private BossHandler bossHandler;
 
     private List<Bullet> playerBullets;
     private List<Platform> platforms;
     private List<Explosion> explosions;
 
-    // Enemies
-    private List<RegularEnemy> regularEnemies;
-    private List<SecondTierEnemy> secondTierEnemies;
-
-    // Bosses
-    private WallBoss wallBoss;
-    private JavaBoss javaBoss;
-    private List<SmallBoss> smallBosses;  // Stage 3: มีหลายตัว
-    private Boss3 boss3;  // Last Boss ของ Stage 3
-
-    // Sprites - แยกต่างหาก per entity
+    // Sprites
     private Image playerBulletSprite;
     private Image explosionSprite;
-
-    // Enemy sprites
-    private Image regularEnemySprite;
-    private Image regularEnemyBulletSprite;  // แยกต่างหาก
-
-    private Image secondTierEnemySprite;
-    private Image secondTierEnemyBulletSprite;  // แยกต่างหาก
-
-    // Boss sprites
-    private Image wallBossNormalSprite;
-    private Image wallBossDeadSprite;
-    private Image wallBossBulletSprite;  // แยกต่างหาก
-
-    private Image javaBossNormalSprite;
-    private Image javaBossDeadSprite;
-    private Image javaBossWeaponSprite;
-    private Image javaBossBulletSprite;  // แยกต่างหาก (sprite sheet 4 frames)
-
-    private Image smallBossSprite;
-    private Image smallBossWeaponSprite;
-    private Image smallBossBulletSprite;
-
-    private Image boss3Sprite;
-    private Image boss3WeaponSprite;
-    private Image boss3BulletSprite;
+    private Image liveIconSprite;
 
     private long lastShoot = 0;
     private final long SHOOT_DELAY = 200_000_000;
@@ -89,7 +51,6 @@ public class GameStage extends Pane implements Updatable {
     private boolean minionsCleared = false;
     private boolean bossSpawned = false;
     private boolean bossDefeated = false;
-    private boolean boss3Spawned = false;  // เช็คว่า spawn Boss3 แล้วหรือยัง
     private boolean stageCleared = false;
     private boolean gameOver = false;
     private int stageClearDelay = 0;
@@ -97,22 +58,22 @@ public class GameStage extends Pane implements Updatable {
     private final int STAGE_CLEAR_WAIT = 180;
     private final int BOSS_SPAWN_WAIT = 120;
 
+    // Stage 3
+    private boolean waitingForNextWave = false;
+    private int waveDelay = 0;
+    private final int WAVE_WAIT = 90;
+
     public GameStage() {
         this.setPrefWidth(WIDTH);
         this.setPrefHeight(HEIGHT);
 
-        // Load sprites - แยกตามตัว
         loadAllSprites();
-
-        // Initialize
         keys = new Keys();
         playerBullets = new ArrayList<>();
         platforms = new ArrayList<>();
         explosions = new ArrayList<>();
-        regularEnemies = new ArrayList<>();
-        secondTierEnemies = new ArrayList<>();
-        smallBosses = new ArrayList<>();
 
+        setupHandlers();
         loadStage(1);
 
         this.setOnKeyPressed(event -> keys.update(event.getCode(), true));
@@ -121,118 +82,88 @@ public class GameStage extends Pane implements Updatable {
     }
 
     private void loadAllSprites() {
-        // Player
         playerBulletSprite = loadImage("item/bullet-player.png");
-
-        // Effects
         explosionSprite = loadImage("effect/Boom.png");
+        liveIconSprite = loadImage("effect/live.png");
+    }
 
-        // Regular Enemy (Stage 1 minions)
-        regularEnemySprite = loadImage("enemy/regular_enemy.png");
-        regularEnemyBulletSprite = loadImage("enemy/bullet_regular-enemy.png");  // ⭐ bullet แยก
+    private void setupHandlers() {
+        uiHandler = new GameUIHandler(this, liveIconSprite);
 
-        // Second-Tier Enemy (Stage 2 minions)
-        secondTierEnemySprite = loadImage("enemy/secound-tier_enemy.png");
-        secondTierEnemyBulletSprite = loadImage("enemy/bullet_secound-tier-enemy.png");  // ⭐ bullet แยก
+        enemyHandler = new EnemyHandler(this,
+                loadImage("enemy/regular_enemy.png"),
+                loadImage("enemy/bullet_regular-enemy.png"),
+                loadImage("enemy/secound-tier_enemy.png"),
+                loadImage("enemy/bullet_secound-tier-enemy.png")
+        );
 
-        // Wall Boss (Stage 1)
-        wallBossNormalSprite = loadImage("boss/boss1/wall-boss-normal.png");
-        wallBossDeadSprite = loadImage("effect/Boom_removebg.png");
-        wallBossBulletSprite = loadImage("boss/boss1/bullet-wall.png");  // ⭐ bullet แยก
-
-        // Java Boss (Stage 2)
-        javaBossNormalSprite = loadImage("boss/boss2/Java-boss.png");
-        javaBossDeadSprite = loadImage("effect/Boom_removebg.png");
-        javaBossWeaponSprite = loadImage("boss/boss2/weapon-boss2.png");
-        javaBossBulletSprite = loadImage("boss/boss2/bullet-java-boss.png");  // ⭐ bullet แยก (sprite sheet 4 frames)
-
-        // Small Boss (Stage 3)
-        smallBossSprite = loadImage("enemy/smallboss/small-boss.png");  // sprite sheet 4 frames
-        smallBossWeaponSprite = loadImage("enemy/smallboss/weapon_small-boss.png");  // sprite sheet 3 frames
-        smallBossBulletSprite = loadImage("enemy/smallboss/bullet_small-boss.png");
-
-        // Boss3 (Last Boss - Stage 3)
-        boss3Sprite = loadImage("boss/boss3/boss3.png");  // ⭐ ถ้ามีรูป
-        boss3WeaponSprite = loadImage("boss/boss3/boss3_weapon.png");
-        boss3BulletSprite = loadImage("boss/boss3/boss3_bullet.png");
+        bossHandler = new BossHandler(this,
+                loadImage("boss/boss1/wall-boss-normal.png"),
+                loadImage("effect/Boom_removebg.png"),
+                loadImage("boss/boss1/bullet-wall.png"),
+                loadImage("boss/boss2/Java-boss.png"),
+                loadImage("effect/Boom_removebg.png"),
+                loadImage("boss/boss2/weapon-boss2.png"),
+                loadImage("boss/boss2/bullet-java-boss.png"),
+                loadImage("enemy/smallboss/small-boss2.png"),
+                loadImage("enemy/smallboss/weapon_small-boss.png"),
+                loadImage("enemy/smallboss/bullet_small-boss.png"),
+                loadImage("boss/boss3/boss3.png"),
+                loadImage("boss/boss3/boss3_weapon.png"),
+                loadImage("boss/boss3/boss3_bullet.png")
+        );
     }
 
     private void loadStage(int stage) {
-        // Reset state
         this.getChildren().clear();
         playerBullets.clear();
         platforms.clear();
         explosions.clear();
-        regularEnemies.clear();
-        secondTierEnemies.clear();
-        smallBosses.clear();
 
-        wallBoss = null;
-        javaBoss = null;
-        boss3 = null;
+        enemyHandler.clearAll();
+        bossHandler.clearAll();
 
         minionsCleared = false;
         bossSpawned = false;
         bossDefeated = false;
-        boss3Spawned = false;
         stageCleared = false;
         bossSpawnDelay = 0;
         stageClearDelay = 0;
+        waitingForNextWave = false;
 
         currentStage = stage;
 
-        // Load background
-        String bgPath = "stage/Stage" + stage + ".png";
-        Image backgroundImage = loadImage(bgPath);
-        if (backgroundImage != null) {
-            backgroundImageView = new ImageView(backgroundImage);
-            backgroundImageView.setFitWidth(WIDTH);
-            backgroundImageView.setFitHeight(HEIGHT);
-            backgroundImageView.setPreserveRatio(false);
-            this.getChildren().add(backgroundImageView);
-        } else {
-            Rectangle bg = new Rectangle(WIDTH, HEIGHT, Color.SKYBLUE);
-            this.getChildren().add(bg);
-        }
+        // Background
+        loadBackground(stage);
+        createPlatforms(stage);
 
-        // Create platforms
-        createPlatformsForStage(stage);
-
-        // Create player
         if (player == null) {
             player = new GameCharacter(100, 100);
-            scoreLabel = new Score(20, 20);
         } else {
             this.getChildren().remove(player);
             player = new GameCharacter(100, 100);
         }
 
-        // Spawn minions first (NOT boss yet)
-        spawnMinionsForStage(stage);
-
-        // UI
-        livesLabel = new Text("Lives: " + playerLives);
-        livesLabel.setFont(Font.font("Arial", 24));
-        livesLabel.setFill(Color.WHITE);
-        livesLabel.setTranslateX(WIDTH - 150);
-        livesLabel.setTranslateY(40);
-
-        stageLabel = new Text("STAGE " + currentStage);
-        stageLabel.setFont(Font.font("Arial", 32));
-        stageLabel.setFill(Color.YELLOW);
-        stageLabel.setTranslateX(WIDTH / 2 - 80);
-        stageLabel.setTranslateY(50);
-
-        waveLabel = new Text("Clear Enemies!");
-        waveLabel.setFont(Font.font("Arial", 24));
-        waveLabel.setFill(Color.ORANGE);
-        waveLabel.setTranslateX(WIDTH / 2 - 100);
-        waveLabel.setTranslateY(100);
-
-        this.getChildren().addAll(player, scoreLabel, livesLabel, stageLabel, waveLabel);
+        spawnMinions(stage);
+        uiHandler.initialize(stage);
+        uiHandler.createLiveIcons(playerLives);
+        this.getChildren().add(player);
     }
 
-    private void createPlatformsForStage(int stage) {
+    private void loadBackground(int stage) {
+        Image bg = loadImage("stage/Stage" + stage + ".png");
+        if (bg != null) {
+            backgroundImageView = new ImageView(bg);
+            backgroundImageView.setFitWidth(WIDTH);
+            backgroundImageView.setFitHeight(HEIGHT);
+            backgroundImageView.setPreserveRatio(false);
+            this.getChildren().add(backgroundImageView);
+        } else {
+            this.getChildren().add(new Rectangle(WIDTH, HEIGHT, Color.SKYBLUE));
+        }
+    }
+
+    private void createPlatforms(int stage) {
         if (stage == 1) {
             platforms.add(new Platform(0, 260, 352, 96));
             platforms.add(new Platform(364, 408, 176, 60));
@@ -242,516 +173,129 @@ public class GameStage extends Pane implements Updatable {
             platforms.add(new Platform(360, 556, 184, 104));
             platforms.add(new Platform(-100, 670, WIDTH + 200, 100));
         } else if (stage == 2) {
-            // Stage 2 platforms - หญ้าสีเหลือง
-            platforms.add(new Platform(0, 390, 193, 329));        // หญ้าซ้าย (ก้อนแรก)
-            platforms.add(new Platform(195, 504, 1085, 216));     // หญ้ากลาง-ขวา (ยาว)
+            platforms.add(new Platform(0, 390, 193, 329));
+            platforms.add(new Platform(195, 504, 1085, 216));
         } else if (stage == 3) {
-            // Stage 3 platforms - ก้อนเมฆ (y ตรงกันหมด)
-            platforms.add(new Platform(50, 580, 280, 60));      // ซ้าย
-            platforms.add(new Platform(480, 580, 280, 60));     // กลาง
-            platforms.add(new Platform(900, 580, 280, 60));     // ขวา
-            platforms.add(new Platform(0, GROUND_Y, WIDTH, 100));  // พื้นล่างสุด
+            platforms.add(new Platform(50, 580, 280, 60));
+            platforms.add(new Platform(480, 580, 280, 60));
+            platforms.add(new Platform(900, 580, 280, 60));
+            platforms.add(new Platform(0, GROUND_Y, WIDTH, 100));
         }
     }
 
-    private void spawnMinionsForStage(int stage) {
+    private void spawnMinions(int stage) {
         if (stage == 1) {
-            // Stage 1: Regular Enemies (ใช้ bullet_regular-enemy.png)
-            regularEnemies.add(new RegularEnemy(
-                    regularEnemySprite, regularEnemyBulletSprite,  // ⭐ ใช้ bullet แยก
-                    900, 200, 700, WIDTH - 50, 100, 400, 3
-            ));
-            regularEnemies.add(new RegularEnemy(
-                    regularEnemySprite, regularEnemyBulletSprite,
-                    1000, 300, 700, WIDTH - 50, 100, 500, 3
-            ));
-            regularEnemies.add(new RegularEnemy(
-                    regularEnemySprite, regularEnemyBulletSprite,
-                    850, 400, 700, WIDTH - 50, 200, 500, 3
-            ));
-
-            for (RegularEnemy enemy : regularEnemies) {
-                this.getChildren().add(enemy);
-            }
-
+            enemyHandler.spawnStage1Enemies();
         } else if (stage == 2) {
-            // Stage 2: Second-Tier Enemies (ใช้ bullet_secound-tier-enemy.png)
-            secondTierEnemies.add(new SecondTierEnemy(
-                    secondTierEnemySprite, secondTierEnemyBulletSprite,  // ⭐ ใช้ bullet แยก
-                    900, 200, 700, WIDTH - 50, 100, 400, 5
-            ));
-            secondTierEnemies.add(new SecondTierEnemy(
-                    secondTierEnemySprite, secondTierEnemyBulletSprite,
-                    1000, 250, 700, WIDTH - 50, 100, 450, 5
-            ));
-            secondTierEnemies.add(new SecondTierEnemy(
-                    secondTierEnemySprite, secondTierEnemyBulletSprite,
-                    1100, 300, 700, WIDTH - 50, 150, 500, 5
-            ));
-            secondTierEnemies.add(new SecondTierEnemy(
-                    secondTierEnemySprite, secondTierEnemyBulletSprite,
-                    950, 350, 700, WIDTH - 50, 200, 500, 5
-            ));
-            secondTierEnemies.add(new SecondTierEnemy(
-                    secondTierEnemySprite, secondTierEnemyBulletSprite,
-                    1050, 150, 700, WIDTH - 50, 100, 400, 5
-            ));
-
-            for (SecondTierEnemy enemy : secondTierEnemies) {
-                this.getChildren().add(enemy);
-            }
+            enemyHandler.spawnStage2Enemies();
         } else if (stage == 3) {
-            // Stage 3: ไม่มี minions เลย - รอ spawn SmallBoss 6 ตัว
             minionsCleared = true;
             bossSpawnDelay = BOSS_SPAWN_WAIT;
-            waveLabel.setText("Small Bosses Incoming...");
-            waveLabel.setFill(Color.YELLOW);
+            uiHandler.updateWaveLabel("Small Bosses Incoming...", Color.YELLOW);
         }
-    }
-
-    private void spawnBossForStage(int stage) {
-        if (stage == 1) {
-            // Wall Boss (ใช้ bullet-wall.png)
-            System.out.println("=== SPAWNING WALLBOSS (Stage 1) ===");
-            wallBoss = new WallBoss(1050, 200, 180, 400, 30,
-                    wallBossNormalSprite, wallBossDeadSprite, wallBossBulletSprite);  // ⭐ bullet แยก
-            this.getChildren().add(wallBoss);
-            System.out.println("✅ WallBoss spawned at x=1050, y=200");
-
-
-        } else if (stage == 2) {
-            // Java Boss (ใช้ bullet-java-boss.png sprite sheet 4 frames)
-            javaBoss = new JavaBoss(1000, 250, 200, 300, 50,
-                    javaBossNormalSprite, javaBossDeadSprite, javaBossWeaponSprite,
-                    javaBossBulletSprite);  // ⭐ bullet แยก
-            this.getChildren().add(javaBoss);
-
-        } else if (stage == 3) {
-            // Small Bosses (6 ตัว) - เกิดบนแนวก้อนเมฆ
-            // Platform positions: ซ้าย(50-330), กลาง(480-760), ขวา(900-1180)
-            // SmallBoss height=120, Platform y=580 → Boss y=460
-
-            double bossY = 460;  // ยืนพอดีบน platform (580-120)
-
-            // x: เริ่มจากนอกจอขวา (เว้นระยะกัน)
-            // minX: หยุดบน platform แต่ละก้อน
-            double[] xPositions = {1350, 1450, 1550, 1650, 1750, 1850};
-            double[] minXPositions = {
-                    150,   // หยุดบน platform ซ้าย
-                    230,   // หยุดบน platform ซ้าย
-                    550,   // หยุดบน platform กลาง
-                    630,   // หยุดบน platform กลาง
-                    950,   // หยุดบน platform ขวา
-                    1030   // หยุดบน platform ขวา
-            };
-
-            for (int i = 0; i < 6; i++) {
-                SmallBoss boss = new SmallBoss(
-                        smallBossSprite,
-                        smallBossWeaponSprite,
-                        smallBossBulletSprite,
-                        xPositions[i],    // เริ่มจากขวา
-                        bossY,            // ✨ y เดียวกันทั้งหมด = 460
-                        minXPositions[i], // ✨ หยุดบน platform ต่างๆ
-                        10  // HP ต่ำ เพราะมี 6 ตัว
-                );
-                smallBosses.add(boss);
-                this.getChildren().add(boss);
-            }
-        }
-
-        waveLabel.setText("BOSS FIGHT!");
-        waveLabel.setFill(Color.RED);
-    }
-
-    private void spawnBoss3() {
-        // Spawn Boss3 (Last Boss) หลังจาก SmallBoss ตายหมด
-        boss3 = new Boss3(
-                boss3Sprite,
-                boss3WeaponSprite,
-                boss3BulletSprite,
-                1200,  // เริ่มจากขวา
-                300,   // กลางจอ
-                50     // HP สูงกว่า SmallBoss มาก
-        );
-        this.getChildren().add(boss3);
-
-        waveLabel.setText("FINAL BOSS!");
-        waveLabel.setFill(Color.RED);
-        System.out.println("Boss3 (Last Boss) spawned!");
     }
 
     public void update(long now) {
-        if (gameOver) {
-            showGameOver();
-            return;
-        }
+        if (gameOver) return;
 
         if (stageCleared) {
-            stageClearDelay--;
-            if (stageClearDelay <= 0) {
-                if (currentStage < 3) {  // ⭐ เปลี่ยนเป็น 3 stages
-                    loadStage(currentStage + 1);
-                } else {
-                    showGameCompleted();
-                }
-            }
+            handleStageTransition();
             return;
         }
 
-        // Check if all minions cleared
-        if (!minionsCleared && !bossSpawned) {
-            boolean allCleared = regularEnemies.stream().allMatch(e -> !e.isAlive()) &&
-                    secondTierEnemies.stream().allMatch(e -> !e.isAlive());
+        checkMinionsCleared();
+        handleBossSpawn();
+        handleStage3Waves();
+        checkBossDefeated();
 
-            if (allCleared) {
-                System.out.println("✅ All enemies cleared! Boss incoming in " + BOSS_SPAWN_WAIT + " frames...");
-                minionsCleared = true;
-                bossSpawnDelay = BOSS_SPAWN_WAIT;
-                waveLabel.setText("Boss Incoming...");
-                waveLabel.setFill(Color.YELLOW);
-            }
-        }
-
-        // Spawn boss after delay
-        if (minionsCleared && !bossSpawned) {
-            bossSpawnDelay--;
-            if (bossSpawnDelay <= 0) {
-                spawnBossForStage(currentStage);
-                bossSpawned = true;
-            }
-        }
-
-        // Update player
+        // Update game objects
         player.update(keys, platforms);
-
-        // Player shooting
         if (player.isShooting() && now - lastShoot > SHOOT_DELAY) {
             shootPlayerBullet();
             lastShoot = now;
         }
 
-        // Update regular enemies
-        for (RegularEnemy enemy : regularEnemies) {
-            if (enemy.isAlive()) {
-                enemy.setPlayerPosition(player.getCenterX(), player.getCenterY());
-                enemy.update(now);
-                updateEnemyBullets(enemy.getBullets(), enemy);
-            }
-        }
+        enemyHandler.update(now, player.getCenterX(), player.getCenterY());
+        bossHandler.update(now);
 
-        // Update second-tier enemies
-        for (SecondTierEnemy enemy : secondTierEnemies) {
-            if (enemy.isAlive()) {
-                enemy.setPlayerPosition(player.getCenterX(), player.getCenterY());
-                enemy.update(now);
-                updateEnemyBullets(enemy.getBullets(), enemy);
-            }
-        }
-
-        // Update Small Bosses (Stage 3)
-        for (SmallBoss boss : smallBosses) {
-            if (boss.isAlive()) {
-                boss.update(now);
-                updateSmallBossBullets(boss.getBullets(), boss);
-            }
-        }
-
-        // Update player bullets
         updatePlayerBullets();
+        enemyHandler.updateEnemyBullets(explosions, explosionSprite, GROUND_Y);
+        bossHandler.updateBossBullets(explosions, explosionSprite, GROUND_Y);
 
-        // Update bosses
-        if (wallBoss != null && wallBoss.isAlive()) {
-            wallBoss.update(now);
-            updateWallBossBullets(wallBoss.getBossBullets(), wallBoss);  // ⭐ ใช้ method พิเศษสำหรับ WallBoss
-        } else if (wallBoss != null && !wallBoss.isAlive() && !bossDefeated) {
+        checkEnemyBulletHits();
+        checkBossBulletHits();
+        updateExplosions();
+    }
+
+    private void handleStageTransition() {
+        stageClearDelay--;
+        if (stageClearDelay <= 0) {
+            if (currentStage < 3) {
+                loadStage(currentStage + 1);
+            } else {
+                showGameCompleted();
+            }
+        }
+    }
+
+    private void checkMinionsCleared() {
+        if (!minionsCleared && !bossSpawned && enemyHandler.allCleared()) {
+            minionsCleared = true;
+            bossSpawnDelay = BOSS_SPAWN_WAIT;
+            uiHandler.updateWaveLabel("Boss Incoming...", Color.YELLOW);
+        }
+    }
+
+    private void handleBossSpawn() {
+        if (minionsCleared && !bossSpawned) {
+            bossSpawnDelay--;
+            if (bossSpawnDelay <= 0) {
+                spawnBoss(currentStage);
+                bossSpawned = true;
+                uiHandler.updateWaveLabel("BOSS FIGHT!", Color.RED);
+            }
+        }
+    }
+
+    private void handleStage3Waves() {
+        if (currentStage != 3 || !bossSpawned) return;
+
+        if (bossHandler.shouldSpawnNextSmallBossWave() && !waitingForNextWave) {
+            waitingForNextWave = true;
+            waveDelay = WAVE_WAIT;
+        }
+
+        if (waitingForNextWave) {
+            waveDelay--;
+            if (waveDelay <= 0) {
+                bossHandler.spawnSmallBossWave();
+                waitingForNextWave = false;
+                uiHandler.updateWaveLabel("Wave " + bossHandler.getSmallBossWave() + "/3", Color.ORANGE);
+            }
+        }
+
+        // Spawn Boss3
+        if (bossHandler.getSmallBossWave() >= 3 &&
+                bossHandler.getSmallBosses().stream().allMatch(b -> !b.isAlive()) &&
+                bossHandler.getBoss3() == null) {
+            bossHandler.spawnBoss3();
+            uiHandler.updateWaveLabel("FINAL BOSS!", Color.RED);
+        }
+    }
+
+    private void spawnBoss(int stage) {
+        if (stage == 1) {
+            bossHandler.spawnWallBoss();
+        } else if (stage == 2) {
+            bossHandler.spawnJavaBoss();
+        } else if (stage == 3) {
+            bossHandler.spawnSmallBossWave();
+        }
+    }
+
+    private void checkBossDefeated() {
+        if (bossSpawned && !bossDefeated && bossHandler.isCurrentBossDefeated(currentStage)) {
             onBossDefeated();
-        }
-
-        if (javaBoss != null && javaBoss.isAlive()) {
-            javaBoss.update(now);
-            updateBossBullets(javaBoss.getBullets(), javaBoss);
-        } else if (javaBoss != null && !javaBoss.isAlive() && !bossDefeated) {
-            onBossDefeated();
-        }
-
-        // Stage 3: Check if all small bosses defeated → spawn Boss3
-        if (currentStage == 3 && !smallBosses.isEmpty() &&
-                smallBosses.stream().allMatch(b -> !b.isAlive()) && !boss3Spawned) {
-            // Spawn Boss3 (Last Boss)
-            spawnBoss3();
-            boss3Spawned = true;
-        }
-
-        // Update Boss3 (Last Boss)
-        if (boss3 != null && boss3.isAlive()) {
-            boss3.update(now);
-            updateBoss3Bullets(boss3.getBullets());
-        } else if (boss3 != null && !boss3.isAlive() && !bossDefeated) {
-            onBossDefeated();
-        }
-
-        // Update explosions
-        Iterator<Explosion> expIt = explosions.iterator();
-        while (expIt.hasNext()) {
-            Explosion exp = expIt.next();
-            exp.update();
-            if (exp.isFinished()) {
-                expIt.remove();
-                this.getChildren().remove(exp);
-            }
-        }
-    }
-
-    private void updatePlayerBullets() {
-        Iterator<Bullet> bulletIt = playerBullets.iterator();
-        while (bulletIt.hasNext()) {
-            Bullet b = bulletIt.next();
-            b.update();
-
-            // Check regular enemy collision
-            for (RegularEnemy enemy : regularEnemies) {
-                if (enemy.checkBulletCollision(b)) {
-                    scoreLabel.addScore(1);
-                    createExplosion(b.getX(), b.getY());
-                    bulletIt.remove();
-                    this.getChildren().remove(b);
-                    break;
-                }
-            }
-
-            if (!b.isActive()) {
-                bulletIt.remove();
-                this.getChildren().remove(b);
-                continue;
-            }
-
-            // Check second-tier enemy collision
-            for (SecondTierEnemy enemy : secondTierEnemies) {
-                if (enemy.checkBulletCollision(b)) {
-                    scoreLabel.addScore(2);
-                    createExplosion(b.getX(), b.getY());
-                    bulletIt.remove();
-                    this.getChildren().remove(b);
-                    break;
-                }
-            }
-
-            if (!b.isActive()) continue;
-
-            // Check small boss collision (Stage 3)
-            for (SmallBoss boss : smallBosses) {
-                if (boss.checkBulletCollision(b)) {
-                    scoreLabel.addScore(2);
-                    createExplosion(b.getX(), b.getY());
-                    bulletIt.remove();
-                    this.getChildren().remove(b);
-                    break;
-                }
-            }
-
-            if (!b.isActive()) continue;
-
-            // Check boss collision
-            if (wallBoss != null && wallBoss.isAlive()) {
-                if (wallBoss.checkBulletCollision(b)) {
-                    scoreLabel.addScore(1);
-                    createExplosion(b.getX(), b.getY());
-                    bulletIt.remove();
-                    this.getChildren().remove(b);
-                }
-            } else if (javaBoss != null && javaBoss.isAlive()) {
-                if (javaBoss.checkBulletCollision(b)) {
-                    scoreLabel.addScore(1);
-                    createExplosion(b.getX(), b.getY());
-                    bulletIt.remove();
-                    this.getChildren().remove(b);
-                }
-            } else if (boss3 != null && boss3.isAlive()) {
-                if (boss3.checkBulletCollision(b)) {
-                    scoreLabel.addScore(1);
-                    createExplosion(b.getX(), b.getY());
-                    bulletIt.remove();
-                    this.getChildren().remove(b);
-                }
-            }
-        }
-    }
-
-    private void updateEnemyBullets(List<Bullet> bullets, Object enemy) {
-        for (Bullet bullet : bullets) {
-            if (!this.getChildren().contains(bullet)) {
-                this.getChildren().add(bullet);
-            }
-
-            if (bullet.checkGroundCollision(GROUND_Y)) {
-                createExplosion(bullet.getX(), bullet.getY());
-                bullet.deactivate();
-                this.getChildren().remove(bullet);
-
-                if (enemy instanceof RegularEnemy) {
-                    ((RegularEnemy) enemy).removeBullet(bullet);
-                } else if (enemy instanceof SecondTierEnemy) {
-                    ((SecondTierEnemy) enemy).removeBullet(bullet);
-                }
-                continue;
-            }
-
-            if (checkPlayerHit(bullet)) {
-                playerHit();
-                createExplosion(bullet.getX(), bullet.getY());
-                bullet.deactivate();
-                this.getChildren().remove(bullet);
-
-                if (enemy instanceof RegularEnemy) {
-                    ((RegularEnemy) enemy).removeBullet(bullet);
-                } else if (enemy instanceof SecondTierEnemy) {
-                    ((SecondTierEnemy) enemy).removeBullet(bullet);
-                }
-            }
-        }
-    }
-
-    private void updateSmallBossBullets(List<Bullet> bullets, SmallBoss boss) {
-        for (Bullet bullet : bullets) {
-            if (!this.getChildren().contains(bullet)) {
-                this.getChildren().add(bullet);
-            }
-
-            if (bullet.checkGroundCollision(GROUND_Y)) {
-                createExplosion(bullet.getX(), bullet.getY());
-                bullet.deactivate();
-                this.getChildren().remove(bullet);
-                boss.removeBullet(bullet);
-                continue;
-            }
-
-            if (checkPlayerHit(bullet)) {
-                playerHit();
-                createExplosion(bullet.getX(), bullet.getY());
-                bullet.deactivate();
-                this.getChildren().remove(bullet);
-                boss.removeBullet(bullet);
-            }
-        }
-    }
-
-    private void updateBoss3Bullets(List<Bullet> bullets) {
-        for (Bullet bullet : bullets) {
-            if (!this.getChildren().contains(bullet)) {
-                this.getChildren().add(bullet);
-            }
-
-            if (bullet.checkGroundCollision(GROUND_Y)) {
-                createExplosion(bullet.getX(), bullet.getY());
-                bullet.deactivate();
-                this.getChildren().remove(bullet);
-                boss3.removeBullet(bullet);
-                continue;
-            }
-
-            if (checkPlayerHit(bullet)) {
-                playerHit();
-                createExplosion(bullet.getX(), bullet.getY());
-                bullet.deactivate();
-                this.getChildren().remove(bullet);
-                boss3.removeBullet(bullet);
-            }
-        }
-    }
-
-    /**
-     * Update WallBoss bullets (Stage 1)
-     * แสดง explosion เฉพาะเมื่อ bullet ตกบน platform ที่กำหนดเท่านั้น
-     */
-    private void updateWallBossBullets(List<Bullet> bullets, WallBoss boss) {
-        // Platform ที่อนุญาตให้แสดง explosion (Stage 1)
-        final double PLATFORM_1_X = 543;  // Platform ซ้าย
-        final double PLATFORM_1_Y = 516;
-        final double PLATFORM_1_WIDTH = 168;
-
-        final double PLATFORM_2_X = 716;  // Platform boss (ขวา)
-        final double PLATFORM_2_Y = 552;
-        final double PLATFORM_2_WIDTH = 568;
-
-        for (Bullet bullet : bullets) {
-            if (!this.getChildren().contains(bullet)) {
-                this.getChildren().add(bullet);
-            }
-
-            // เช็คว่า bullet ตกถึง platform หรือยัง
-            double bulletY = bullet.getY();
-            double bulletX = bullet.getX();
-
-            // เช็ค platform 1 (y=516)
-            boolean hitPlatform1 = bulletY >= PLATFORM_1_Y &&
-                    bulletX >= PLATFORM_1_X &&
-                    bulletX <= PLATFORM_1_X + PLATFORM_1_WIDTH;
-
-            // เช็ค platform 2 (y=552)
-            boolean hitPlatform2 = bulletY >= PLATFORM_2_Y &&
-                    bulletX >= PLATFORM_2_X &&
-                    bulletX <= PLATFORM_2_X + PLATFORM_2_WIDTH;
-
-            // ถ้าตกบน platform ที่กำหนด → แสดง explosion
-            if (hitPlatform1 || hitPlatform2) {
-                createExplosion(bulletX, bulletY);
-                bullet.deactivate();
-                this.getChildren().remove(bullet);
-                boss.removeBullet(bullet);
-                continue;
-            }
-
-            // ถ้าตกถึงพื้นล่างสุด → ลบโดยไม่แสดง explosion
-            if (bullet.checkGroundCollision(GROUND_Y)) {
-                bullet.deactivate();
-                this.getChildren().remove(bullet);
-                boss.removeBullet(bullet);
-                continue;
-            }
-
-            // เช็คว่าชน player หรือไม่
-            if (checkPlayerHit(bullet)) {
-                playerHit();
-                createExplosion(bulletX, bulletY);
-                bullet.deactivate();
-                this.getChildren().remove(bullet);
-                boss.removeBullet(bullet);
-            }
-        }
-    }
-
-    private void updateBossBullets(List<Bullet> bullets, Object boss) {
-        for (Bullet bullet : bullets) {
-            if (!this.getChildren().contains(bullet)) {
-                this.getChildren().add(bullet);
-            }
-
-            if (bullet.checkGroundCollision(GROUND_Y)) {
-                createExplosion(bullet.getX(), bullet.getY());
-                bullet.deactivate();
-                this.getChildren().remove(bullet);
-
-                if (boss instanceof WallBoss) {
-                    ((WallBoss) boss).removeBullet(bullet);
-                } else if (boss instanceof JavaBoss) {
-                    ((JavaBoss) boss).removeBullet(bullet);
-                }
-                continue;
-            }
-
-            if (checkPlayerHit(bullet)) {
-                playerHit();
-                createExplosion(bullet.getX(), bullet.getY());
-                bullet.deactivate();
-                this.getChildren().remove(bullet);
-
-                if (boss instanceof WallBoss) {
-                    ((WallBoss) boss).removeBullet(bullet);
-                } else if (boss instanceof JavaBoss) {
-                    ((JavaBoss) boss).removeBullet(bullet);
-                }
-            }
         }
     }
 
@@ -765,33 +309,126 @@ public class GameStage extends Pane implements Updatable {
         this.getChildren().add(bullet);
     }
 
-    private void createExplosion(double x, double y) {
-        Explosion exp = new Explosion(explosionSprite, x, y);
-        explosions.add(exp);
-        this.getChildren().add(exp);
+    private void updatePlayerBullets() {
+        Iterator<Bullet> it = playerBullets.iterator();
+        while (it.hasNext()) {
+            Bullet b = it.next();
+            b.update();
+
+            if (!b.isActive()) {
+                it.remove();
+                this.getChildren().remove(b);
+                continue;
+            }
+
+            if (checkEnemyHit(b) || checkBossHit(b)) {
+                it.remove();
+                this.getChildren().remove(b);
+            }
+        }
     }
 
-    private void createBossDeathExplosions(double bossX, double bossY, double bossW, double bossH) {
-        for (int i = 0; i < 10; i++) {
-            double randomX = bossX + Math.random() * bossW;
-            double randomY = bossY + Math.random() * bossH;
-            createExplosion(randomX, randomY);
+    private boolean checkEnemyHit(Bullet bullet) {
+        for (var enemy : enemyHandler.getRegularEnemies()) {
+            if (enemy.checkBulletCollision(bullet)) {
+                uiHandler.addScore(1);
+                createExplosion(bullet.getX(), bullet.getY());
+                return true;
+            }
+        }
+
+        for (var enemy : enemyHandler.getSecondTierEnemies()) {
+            if (enemy.checkBulletCollision(bullet)) {
+                uiHandler.addScore(2);
+                createExplosion(bullet.getX(), bullet.getY());
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private boolean checkBossHit(Bullet bullet) {
+        if (bossHandler.getWallBoss() != null && bossHandler.getWallBoss().checkBulletCollision(bullet)) {
+            uiHandler.addScore(1);
+            createExplosion(bullet.getX(), bullet.getY());
+            return true;
+        }
+
+        if (bossHandler.getJavaBoss() != null && bossHandler.getJavaBoss().checkBulletCollision(bullet)) {
+            uiHandler.addScore(1);
+            createExplosion(bullet.getX(), bullet.getY());
+            return true;
+        }
+
+        for (var boss : bossHandler.getSmallBosses()) {
+            if (boss.checkBulletCollision(bullet)) {
+                uiHandler.addScore(1);
+                createExplosion(bullet.getX(), bullet.getY());
+                return true;
+            }
+        }
+
+        if (bossHandler.getBoss3() != null && bossHandler.getBoss3().checkBulletCollision(bullet)) {
+            uiHandler.addScore(5);
+            createExplosion(bullet.getX(), bullet.getY());
+            return true;
+        }
+
+        return false;
+    }
+
+    private void checkEnemyBulletHits() {
+        for (var enemy : enemyHandler.getRegularEnemies()) {
+            checkBulletPlayerHit(enemy.getBullets());
+        }
+        for (var enemy : enemyHandler.getSecondTierEnemies()) {
+            checkBulletPlayerHit(enemy.getBullets());
+        }
+    }
+
+    private void checkBossBulletHits() {
+        if (bossHandler.getWallBoss() != null) {
+            checkBulletPlayerHit(bossHandler.getWallBoss().getBossBullets());
+        }
+        if (bossHandler.getJavaBoss() != null) {
+            checkBulletPlayerHit(bossHandler.getJavaBoss().getBullets());
+        }
+        for (var boss : bossHandler.getSmallBosses()) {
+            checkBulletPlayerHit(boss.getBullets());
+        }
+        if (bossHandler.getBoss3() != null) {
+            checkBulletPlayerHit(bossHandler.getBoss3().getBullets());
+        }
+    }
+
+    private void checkBulletPlayerHit(List<Bullet> bullets) {
+        Iterator<Bullet> it = bullets.iterator();
+        while (it.hasNext()) {
+            Bullet b = it.next();
+            if (checkPlayerHit(b)) {
+                playerHit();
+                createExplosion(b.getX(), b.getY());
+                this.getChildren().remove(b);
+                it.remove();
+            }
         }
     }
 
     private boolean checkPlayerHit(Bullet bullet) {
-        double bulletX = bullet.getCenterX();
-        double bulletY = bullet.getCenterY();
-        return bulletX >= player.getX() && bulletX <= player.getX() + 47 &&
-                bulletY >= player.getY() && bulletY <= player.getY() + 36;
+        double bx = bullet.getCenterX();
+        double by = bullet.getCenterY();
+        return bx >= player.getX() && bx <= player.getX() + 47 &&
+                by >= player.getY() && by <= player.getY() + 36;
     }
 
     private void playerHit() {
         playerLives--;
-        livesLabel.setText("Lives: " + playerLives);
+        uiHandler.createLiveIcons(playerLives);
 
         if (playerLives <= 0) {
             gameOver = true;
+            showGameOver();
         } else {
             this.getChildren().remove(player);
             player = new GameCharacter(100, 100);
@@ -801,57 +438,106 @@ public class GameStage extends Pane implements Updatable {
 
     private void onBossDefeated() {
         bossDefeated = true;
-        scoreLabel.addScore(100);
-
-        if (wallBoss != null) {
-            createBossDeathExplosions(wallBoss.getBossX(), wallBoss.getBossY(),
-                    wallBoss.getBossWidth(), wallBoss.getBossHeight());
-        } else if (javaBoss != null) {
-            createBossDeathExplosions(javaBoss.getBossX(), javaBoss.getBossY(),
-                    javaBoss.getBossWidth(), javaBoss.getBossHeight());
-        } else if (boss3 != null) {
-            // Boss3 (Last Boss) defeated - huge explosions!
-            createBossDeathExplosions(boss3.getX(), boss3.getY(),
-                    boss3.getBossWidth(), boss3.getBossHeight());
-        } else if (!smallBosses.isEmpty()) {
-            // Explosions for all small bosses
-            for (SmallBoss boss : smallBosses) {
-                createBossDeathExplosions(boss.getX(), boss.getY(),
-                        boss.getBossWidth(), boss.getBossHeight());
-            }
-        }
-
+        createBossExplosions();
         stageCleared = true;
         stageClearDelay = STAGE_CLEAR_WAIT;
     }
 
+    private void createExplosion(double x, double y) {
+        Explosion exp = new Explosion(explosionSprite, x, y);
+        explosions.add(exp);
+        this.getChildren().add(exp);
+    }
+
+    private void createBossExplosions() {
+        double x = 0, y = 0, w = 0, h = 0;
+
+        if (bossHandler.getWallBoss() != null) {
+            var b = bossHandler.getWallBoss();
+            x = b.getBossX(); y = b.getBossY(); w = b.getBossWidth(); h = b.getBossHeight();
+        } else if (bossHandler.getJavaBoss() != null) {
+            var b = bossHandler.getJavaBoss();
+            x = b.getBossX(); y = b.getBossY(); w = b.getBossWidth(); h = b.getBossHeight();
+        } else if (bossHandler.getBoss3() != null) {
+            var b = bossHandler.getBoss3();
+            x = b.getX(); y = b.getY(); w = b.getBossWidth(); h = b.getBossHeight();
+        }
+
+        for (int i = 0; i < 10; i++) {
+            double randomX = x + Math.random() * w;
+            double randomY = y + Math.random() * h;
+            createExplosion(randomX, randomY);
+        }
+    }
+
+    private void updateExplosions() {
+        Iterator<Explosion> it = explosions.iterator();
+        while (it.hasNext()) {
+            Explosion exp = it.next();
+            exp.update();
+            if (exp.isFinished()) {
+                it.remove();
+                this.getChildren().remove(exp);
+            }
+        }
+    }
+
     private void showGameOver() {
         this.getChildren().clear();
+
         Rectangle bg = new Rectangle(WIDTH, HEIGHT, Color.BLACK);
-        Text endText = new Text("GAME OVER!");
-        endText.setFont(Font.font("Arial", 48));
-        endText.setFill(Color.RED);
-        endText.setTranslateX(WIDTH / 2 - 150);
-        endText.setTranslateY(HEIGHT / 2);
-        this.getChildren().addAll(bg, endText);
+
+        Text gameOverText = new Text("GAME OVER!");
+        gameOverText.setFont(Font.font("Arial", 48));
+        gameOverText.setFill(Color.RED);
+        gameOverText.setTranslateX(WIDTH / 2 - 150);
+        gameOverText.setTranslateY(HEIGHT / 2 - 60);
+
+        Text scoreText = new Text("Final Score: " + uiHandler.getScore());
+        scoreText.setFont(Font.font("Arial", 36));
+        scoreText.setFill(Color.WHITE);
+        scoreText.setTranslateX(WIDTH / 2 - 120);
+        scoreText.setTranslateY(HEIGHT / 2 + 20);
+
+        Button restartButton = new Button("RESTART");
+        restartButton.setFont(Font.font("Arial", 24));
+        restartButton.setTranslateX(WIDTH / 2 - 60);
+        restartButton.setTranslateY(HEIGHT / 2 + 80);
+        restartButton.setOnAction(e -> restartGame());
+
+        this.getChildren().addAll(bg, gameOverText, scoreText, restartButton);
     }
 
     private void showGameCompleted() {
         this.getChildren().clear();
-        Rectangle bg = new Rectangle(WIDTH, HEIGHT, Color.DARKBLUE);
-        Text endText = new Text("ALL STAGES COMPLETED!");
-        endText.setFont(Font.font("Arial", 48));
-        endText.setFill(Color.GOLD);
-        endText.setTranslateX(WIDTH / 2 - 300);
-        endText.setTranslateY(HEIGHT / 2);
 
-        Text scoreText = new Text("Final Score: " + scoreLabel.getScore());
+        Rectangle bg = new Rectangle(WIDTH, HEIGHT, Color.DARKBLUE);
+
+        Text completedText = new Text("ALL STAGES COMPLETED!");
+        completedText.setFont(Font.font("Arial", 48));
+        completedText.setFill(Color.GOLD);
+        completedText.setTranslateX(WIDTH / 2 - 300);
+        completedText.setTranslateY(HEIGHT / 2 - 60);
+
+        Text scoreText = new Text("Final Score: " + uiHandler.getScore());
         scoreText.setFont(Font.font("Arial", 36));
         scoreText.setFill(Color.WHITE);
         scoreText.setTranslateX(WIDTH / 2 - 150);
-        scoreText.setTranslateY(HEIGHT / 2 + 60);
+        scoreText.setTranslateY(HEIGHT / 2 + 20);
 
-        this.getChildren().addAll(bg, endText, scoreText);
+        Button restartButton = new Button("PLAY AGAIN");
+        restartButton.setFont(Font.font("Arial", 24));
+        restartButton.setTranslateX(WIDTH / 2 - 75);
+        restartButton.setTranslateY(HEIGHT / 2 + 80);
+        restartButton.setOnAction(e -> restartGame());
+
+        this.getChildren().addAll(bg, completedText, scoreText, restartButton);
+    }
+
+    private void restartGame() {
+        gameOver = false;
+        playerLives = 3;
+        loadStage(1);
     }
 
     private Image loadImage(String filename) {
